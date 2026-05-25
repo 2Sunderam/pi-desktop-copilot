@@ -17,6 +17,9 @@ out
 .gemini/
 .agents/
 
+# IDE / Editor Settings
+.vscode/
+
 # SQLite Database Files
 *.db
 *.db-journal
