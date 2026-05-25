@@ -99,9 +99,3 @@ npm run build:win
 npm run build:linux
 ```
 
----
-
-## Security & Data Privacy
-
-* **Zero Hardcoded Keys**: The application maintains absolute security. Your API keys are kept strictly in-memory during execution or persisted client-side in browser `localStorage` on your local system. No keys are ever written to the repository or database.
-* **Strict Git Exclusions**: The updated `.gitignore` is heavily fortified. Local SQLite database logs, `.env` files, `.gemini/` agent telemetry data, `.agents/` runtime metadata, and IDE-specific folder settings (`.vscode/`) are completely excluded from git tracking.
