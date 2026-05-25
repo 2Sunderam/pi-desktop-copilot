@@ -23,25 +23,30 @@ See [examples/sdk/](https://github.com/earendil-works/pi/blob/main/packages/codi
 [Copied](https://pi.dev/docs/latest/sdk#quick-start)
 
 ```typescript
-import { AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  AuthStorage,
+  createAgentSession,
+  ModelRegistry,
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
 // Set up credential storage and model registry
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+const authStorage = AuthStorage.create()
+const modelRegistry = ModelRegistry.create(authStorage)
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
   authStorage,
-  modelRegistry,
-});
+  modelRegistry
+})
 
 session.subscribe((event) => {
-  if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-    process.stdout.write(event.assistantMessageEvent.delta);
+  if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
+    process.stdout.write(event.assistantMessageEvent.delta)
   }
-});
+})
 
-await session.prompt("What files are in the current directory?");
+await session.prompt('What files are in the current directory?')
 ```
 
 ## Installation
@@ -67,17 +72,17 @@ The main factory function for a single `AgentSession`.
 `createAgentSession()` uses a `ResourceLoader` to supply extensions, skills, prompt templates, themes, and context files. If you do not provide one, it uses `DefaultResourceLoader` with standard discovery.
 
 ```typescript
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager } from '@earendil-works/pi-coding-agent'
 
 // Minimal: defaults with DefaultResourceLoader
-const { session } = await createAgentSession();
+const { session } = await createAgentSession()
 
 // Custom: override specific options
 const { session } = await createAgentSession({
   model: myModel,
-  tools: ["read", "bash"],
-  sessionManager: SessionManager.inMemory(),
-});
+  tools: ['read', 'bash'],
+  sessionManager: SessionManager.inMemory()
+})
 ```
 
 ### AgentSession
@@ -89,44 +94,52 @@ The session manages agent lifecycle, message history, model state, compaction, a
 ```typescript
 interface AgentSession {
   // Send a prompt and wait for completion
-  prompt(text: string, options?: PromptOptions): Promise<void>;
+  prompt(text: string, options?: PromptOptions): Promise<void>
 
   // Queue messages during streaming
-  steer(text: string): Promise<void>;
-  followUp(text: string): Promise<void>;
+  steer(text: string): Promise<void>
+  followUp(text: string): Promise<void>
 
   // Subscribe to events (returns unsubscribe function)
-  subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+  subscribe(listener: (event: AgentSessionEvent) => void): () => void
 
   // Session info
-  sessionFile: string | undefined;
-  sessionId: string;
+  sessionFile: string | undefined
+  sessionId: string
 
   // Model control
-  setModel(model: Model): Promise<void>;
-  setThinkingLevel(level: ThinkingLevel): void;
-  cycleModel(): Promise<ModelCycleResult | undefined>;
-  cycleThinkingLevel(): ThinkingLevel | undefined;
+  setModel(model: Model): Promise<void>
+  setThinkingLevel(level: ThinkingLevel): void
+  cycleModel(): Promise<ModelCycleResult | undefined>
+  cycleThinkingLevel(): ThinkingLevel | undefined
 
   // State access
-  agent: Agent;
-  model: Model | undefined;
-  thinkingLevel: ThinkingLevel;
-  messages: AgentMessage[];
-  isStreaming: boolean;
+  agent: Agent
+  model: Model | undefined
+  thinkingLevel: ThinkingLevel
+  messages: AgentMessage[]
+  isStreaming: boolean
 
   // In-place tree navigation within the current session file
-  navigateTree(targetId: string, options?: { summarize?: boolean; customInstructions?: string; replaceInstructions?: boolean; label?: string }): Promise<{ editorText?: string; cancelled: boolean }>;
+  navigateTree(
+    targetId: string,
+    options?: {
+      summarize?: boolean
+      customInstructions?: string
+      replaceInstructions?: boolean
+      label?: string
+    }
+  ): Promise<{ editorText?: string; cancelled: boolean }>
 
   // Compaction
-  compact(customInstructions?: string): Promise<CompactionResult>;
-  abortCompaction(): void;
+  compact(customInstructions?: string): Promise<CompactionResult>
+  abortCompaction(): void
 
   // Abort current operation
-  abort(): Promise<void>;
+  abort(): Promise<void>
 
   // Cleanup
-  dispose(): void;
+  dispose(): void
 }
 ```
 
@@ -148,27 +161,31 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+  cwd,
+  sessionManager,
+  sessionStartEvent
+}) => {
+  const services = await createAgentSessionServices({ cwd })
   return {
     ...(await createAgentSessionFromServices({
       services,
       sessionManager,
-      sessionStartEvent,
+      sessionStartEvent
     })),
     services,
-    diagnostics: services.diagnostics,
-  };
-};
+    diagnostics: services.diagnostics
+  }
+}
 
 const runtime = await createAgentSessionRuntime(createRuntime, {
   cwd: process.cwd(),
   agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 ```
 
 `AgentSessionRuntime` owns replacement of the active runtime across:
@@ -188,14 +205,14 @@ Important behavior:
 - if runtime creation or replacement fails, the method throws and the caller decides how to handle it
 
 ```typescript
-let session = runtime.session;
-let unsubscribe = session.subscribe(() => {});
+let session = runtime.session
+let unsubscribe = session.subscribe(() => {})
 
-await runtime.newSession();
+await runtime.newSession()
 
-unsubscribe();
-session = runtime.session;
-unsubscribe = session.subscribe(() => {});
+unsubscribe()
+session = runtime.session
+unsubscribe = session.subscribe(() => {})
 ```
 
 ### Prompting and Message Queueing
@@ -206,11 +223,11 @@ unsubscribe = session.subscribe(() => {});
 
 ```typescript
 interface PromptOptions {
-  expandPromptTemplates?: boolean;
-  images?: ImageContent[];
-  streamingBehavior?: "steer" | "followUp";
-  source?: InputSource;
-  preflightResult?: (success: boolean) => void;
+  expandPromptTemplates?: boolean
+  images?: ImageContent[]
+  streamingBehavior?: 'steer' | 'followUp'
+  source?: InputSource
+  preflightResult?: (success: boolean) => void
 }
 ```
 
@@ -225,16 +242,16 @@ The `prompt()` method handles prompt templates, extension commands, and message 
 
 ```typescript
 // Basic prompt (when not streaming)
-await session.prompt("What files are here?");
+await session.prompt('What files are here?')
 
 // With images
 await session.prompt("What's in this image?", {
-  images: [{ type: "image", source: { type: "base64", mediaType: "image/png", data: "..." } }]
-});
+  images: [{ type: 'image', source: { type: 'base64', mediaType: 'image/png', data: '...' } }]
+})
 
 // During streaming: must specify how to queue the message
-await session.prompt("Stop and do this instead", { streamingBehavior: "steer" });
-await session.prompt("After you're done, also check X", { streamingBehavior: "followUp" });
+await session.prompt('Stop and do this instead', { streamingBehavior: 'steer' })
+await session.prompt("After you're done, also check X", { streamingBehavior: 'followUp' })
 ```
 
 **Behavior:**
@@ -249,10 +266,10 @@ For explicit queueing during streaming:
 
 ```typescript
 // Queue a steering message for delivery after the current assistant turn finishes its tool calls
-await session.steer("New instruction");
+await session.steer('New instruction')
 
 // Wait for agent to finish (delivered only when agent stops)
-await session.followUp("After you're done, also do this");
+await session.followUp("After you're done, also do this")
 ```
 
 Both `steer()` and `followUp()` expand file-based prompt templates but error on extension commands (extension commands cannot be queued).
@@ -265,7 +282,7 @@ The `Agent` class (from `@earendil-works/pi-agent-core`) handles the core LLM in
 
 ```typescript
 // Access current state
-const state = session.agent.state;
+const state = session.agent.state
 
 // state.messages: AgentMessage[] - conversation history
 // state.model: Model - current model
@@ -276,13 +293,13 @@ const state = session.agent.state;
 // state.errorMessage?: string - latest assistant error
 
 // Replace messages (useful for branching or restoration)
-session.agent.state.messages = messages; // copies the top-level array
+session.agent.state.messages = messages // copies the top-level array
 
 // Replace tools
-session.agent.state.tools = tools; // copies the top-level array
+session.agent.state.tools = tools // copies the top-level array
 
 // Wait for agent to finish processing
-await session.agent.waitForIdle();
+await session.agent.waitForIdle()
 ```
 
 ### Events
@@ -295,61 +312,61 @@ Subscribe to events to receive streaming output and lifecycle notifications.
 session.subscribe((event) => {
   switch (event.type) {
     // Streaming text from assistant
-    case "message_update":
-      if (event.assistantMessageEvent.type === "text_delta") {
-        process.stdout.write(event.assistantMessageEvent.delta);
+    case 'message_update':
+      if (event.assistantMessageEvent.type === 'text_delta') {
+        process.stdout.write(event.assistantMessageEvent.delta)
       }
-      if (event.assistantMessageEvent.type === "thinking_delta") {
+      if (event.assistantMessageEvent.type === 'thinking_delta') {
         // Thinking output (if thinking enabled)
       }
-      break;
+      break
 
     // Tool execution
-    case "tool_execution_start":
-      console.log(`Tool: ${event.toolName}`);
-      break;
-    case "tool_execution_update":
+    case 'tool_execution_start':
+      console.log(`Tool: ${event.toolName}`)
+      break
+    case 'tool_execution_update':
       // Streaming tool output
-      break;
-    case "tool_execution_end":
-      console.log(`Result: ${event.isError ? "error" : "success"}`);
-      break;
+      break
+    case 'tool_execution_end':
+      console.log(`Result: ${event.isError ? 'error' : 'success'}`)
+      break
 
     // Message lifecycle
-    case "message_start":
+    case 'message_start':
       // New message starting
-      break;
-    case "message_end":
+      break
+    case 'message_end':
       // Message complete
-      break;
+      break
 
     // Agent lifecycle
-    case "agent_start":
+    case 'agent_start':
       // Agent started processing prompt
-      break;
-    case "agent_end":
+      break
+    case 'agent_end':
       // Agent finished (event.messages contains new messages)
-      break;
+      break
 
     // Turn lifecycle (one LLM response + tool calls)
-    case "turn_start":
-      break;
-    case "turn_end":
+    case 'turn_start':
+      break
+    case 'turn_end':
       // event.message: assistant response
       // event.toolResults: tool results from this turn
-      break;
+      break
 
     // Session events (queue, compaction, retry)
-    case "queue_update":
-      console.log(event.steering, event.followUp);
-      break;
-    case "compaction_start":
-    case "compaction_end":
-    case "auto_retry_start":
-    case "auto_retry_end":
-      break;
+    case 'queue_update':
+      console.log(event.steering, event.followUp)
+      break
+    case 'compaction_start':
+    case 'compaction_end':
+    case 'auto_retry_start':
+    case 'auto_retry_end':
+      break
   }
-});
+})
 ```
 
 ## Options Reference
@@ -366,8 +383,8 @@ const { session } = await createAgentSession({
   cwd: process.cwd(), // default
 
   // Global config directory
-  agentDir: "~/.pi/agent", // default (expands ~)
-});
+  agentDir: '~/.pi/agent' // default (expands ~)
+})
 ```
 
 `cwd` is used by `DefaultResourceLoader` for:
@@ -452,33 +469,33 @@ API key resolution priority (handled by AuthStorage):
 4. Fallback resolver (for custom provider keys from `models.json`)
 
 ```typescript
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent'
 
 // Default: uses ~/.pi/agent/auth.json and ~/.pi/agent/models.json
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+const authStorage = AuthStorage.create()
+const modelRegistry = ModelRegistry.create(authStorage)
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
   authStorage,
-  modelRegistry,
-});
+  modelRegistry
+})
 
 // Runtime API key override (not persisted to disk)
-authStorage.setRuntimeApiKey("anthropic", "sk-my-temp-key");
+authStorage.setRuntimeApiKey('anthropic', 'sk-my-temp-key')
 
 // Custom auth storage location
-const customAuth = AuthStorage.create("/my/app/auth.json");
-const customRegistry = ModelRegistry.create(customAuth, "/my/app/models.json");
+const customAuth = AuthStorage.create('/my/app/auth.json')
+const customRegistry = ModelRegistry.create(customAuth, '/my/app/models.json')
 
 const { session } = await createAgentSession({
   sessionManager: SessionManager.inMemory(),
   authStorage: customAuth,
-  modelRegistry: customRegistry,
-});
+  modelRegistry: customRegistry
+})
 
 // No custom models.json (built-in models only)
-const simpleRegistry = ModelRegistry.inMemory(authStorage);
+const simpleRegistry = ModelRegistry.inMemory(authStorage)
 ```
 
 > See [examples/sdk/09-api-keys-and-oauth.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/09-api-keys-and-oauth.ts)
@@ -490,14 +507,14 @@ const simpleRegistry = ModelRegistry.inMemory(authStorage);
 Use a `ResourceLoader` to override the system prompt:
 
 ```typescript
-import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader } from '@earendil-works/pi-coding-agent'
 
 const loader = new DefaultResourceLoader({
-  systemPromptOverride: () => "You are a helpful assistant.",
-});
-await loader.reload();
+  systemPromptOverride: () => 'You are a helpful assistant.'
+})
+await loader.reload()
 
-const { session } = await createAgentSession({ resourceLoader: loader });
+const { session } = await createAgentSession({ resourceLoader: loader })
 ```
 
 > See [examples/sdk/03-custom-prompt.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/03-custom-prompt.ts)
@@ -516,17 +533,17 @@ Specify which built-in tools to enable:
 The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers.
 
 ```typescript
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession } from '@earendil-works/pi-coding-agent'
 
 // Read-only mode
 const { session } = await createAgentSession({
-  tools: ["read", "grep", "find", "ls"],
-});
+  tools: ['read', 'grep', 'find', 'ls']
+})
 
 // Pick specific tools
 const { session } = await createAgentSession({
-  tools: ["read", "bash", "grep"],
-});
+  tools: ['read', 'bash', 'grep']
+})
 ```
 
 #### Tools with Custom cwd
@@ -536,22 +553,22 @@ const { session } = await createAgentSession({
 When you pass a custom `cwd`, `createAgentSession()` builds selected built-in tools for that cwd.
 
 ```typescript
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager } from '@earendil-works/pi-coding-agent'
 
-const cwd = "/path/to/project";
+const cwd = '/path/to/project'
 
 // Use default tools for custom cwd
 const { session } = await createAgentSession({
   cwd,
-  sessionManager: SessionManager.inMemory(cwd),
-});
+  sessionManager: SessionManager.inMemory(cwd)
+})
 
 // Or pick specific tools for custom cwd
 const { session } = await createAgentSession({
   cwd,
-  tools: ["read", "bash", "grep"],
-  sessionManager: SessionManager.inMemory(cwd),
-});
+  tools: ['read', 'bash', 'grep'],
+  sessionManager: SessionManager.inMemory(cwd)
+})
 ```
 
 > See [examples/sdk/05-tools.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/05-tools.ts)
@@ -561,27 +578,27 @@ const { session } = await createAgentSession({
 [Copied](https://pi.dev/docs/latest/sdk#custom-tools)
 
 ```typescript
-import { Type } from "typebox";
-import { createAgentSession, defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from 'typebox'
+import { createAgentSession, defineTool } from '@earendil-works/pi-coding-agent'
 
 // Inline custom tool
 const myTool = defineTool({
-  name: "my_tool",
-  label: "My Tool",
-  description: "Does something useful",
+  name: 'my_tool',
+  label: 'My Tool',
+  description: 'Does something useful',
   parameters: Type.Object({
-    input: Type.String({ description: "Input value" }),
+    input: Type.String({ description: 'Input value' })
   }),
   execute: async (_toolCallId, params) => ({
-    content: [{ type: "text", text: `Result: ${params.input}` }],
-    details: {},
-  }),
-});
+    content: [{ type: 'text', text: `Result: ${params.input}` }],
+    details: {}
+  })
+})
 
 // Pass custom tools directly
 const { session } = await createAgentSession({
-  customTools: [myTool],
-});
+  customTools: [myTool]
+})
 ```
 
 Use `defineTool()` for standalone definitions and arrays like `customTools: [myTool]`. Inline `pi.registerTool({ ... })` already infers parameter types correctly.
@@ -621,15 +638,15 @@ Extensions can register tools, subscribe to events, add commands, and more. See 
 **Event Bus:** Extensions can communicate via `pi.events`. Pass a shared `eventBus` to `DefaultResourceLoader` if you need to emit or listen from outside:
 
 ```typescript
-import { createEventBus, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import { createEventBus, DefaultResourceLoader } from '@earendil-works/pi-coding-agent'
 
-const eventBus = createEventBus();
+const eventBus = createEventBus()
 const loader = new DefaultResourceLoader({
-  eventBus,
-});
-await loader.reload();
+  eventBus
+})
+await loader.reload()
 
-eventBus.on("my-extension:status", (data) => console.log(data));
+eventBus.on('my-extension:status', (data) => console.log(data))
 ```
 
 > See [examples/sdk/06-extensions.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/06-extensions.ts) and [docs/extensions.md](https://pi.dev/docs/latest/extensions)
@@ -642,26 +659,26 @@ eventBus.on("my-extension:status", (data) => console.log(data));
 import {
   createAgentSession,
   DefaultResourceLoader,
-  type Skill,
-} from "@earendil-works/pi-coding-agent";
+  type Skill
+} from '@earendil-works/pi-coding-agent'
 
 const customSkill: Skill = {
-  name: "my-skill",
-  description: "Custom instructions",
-  filePath: "/path/to/SKILL.md",
-  baseDir: "/path/to",
-  source: "custom",
-};
+  name: 'my-skill',
+  description: 'Custom instructions',
+  filePath: '/path/to/SKILL.md',
+  baseDir: '/path/to',
+  source: 'custom'
+}
 
 const loader = new DefaultResourceLoader({
   skillsOverride: (current) => ({
     skills: [...current.skills, customSkill],
-    diagnostics: current.diagnostics,
-  }),
-});
-await loader.reload();
+    diagnostics: current.diagnostics
+  })
+})
+await loader.reload()
 
-const { session } = await createAgentSession({ resourceLoader: loader });
+const { session } = await createAgentSession({ resourceLoader: loader })
 ```
 
 > See [examples/sdk/04-skills.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/04-skills.ts)
@@ -696,25 +713,25 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 import {
   createAgentSession,
   DefaultResourceLoader,
-  type PromptTemplate,
-} from "@earendil-works/pi-coding-agent";
+  type PromptTemplate
+} from '@earendil-works/pi-coding-agent'
 
 const customCommand: PromptTemplate = {
-  name: "deploy",
-  description: "Deploy the application",
-  source: "(custom)",
-  content: "# Deploy\n\n1. Build\n2. Test\n3. Deploy",
-};
+  name: 'deploy',
+  description: 'Deploy the application',
+  source: '(custom)',
+  content: '# Deploy\n\n1. Build\n2. Test\n3. Deploy'
+}
 
 const loader = new DefaultResourceLoader({
   promptsOverride: (current) => ({
     prompts: [...current.prompts, customCommand],
-    diagnostics: current.diagnostics,
-  }),
-});
-await loader.reload();
+    diagnostics: current.diagnostics
+  })
+})
+await loader.reload()
 
-const { session } = await createAgentSession({ resourceLoader: loader });
+const { session } = await createAgentSession({ resourceLoader: loader })
 ```
 
 > See [examples/sdk/08-prompt-templates.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/08-prompt-templates.ts)
@@ -733,94 +750,98 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
 // In-memory (no persistence)
 const { session } = await createAgentSession({
-  sessionManager: SessionManager.inMemory(),
-});
+  sessionManager: SessionManager.inMemory()
+})
 
 // New persistent session
 const { session: persisted } = await createAgentSession({
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 
 // Continue most recent
 const { session: continued, modelFallbackMessage } = await createAgentSession({
-  sessionManager: SessionManager.continueRecent(process.cwd()),
-});
+  sessionManager: SessionManager.continueRecent(process.cwd())
+})
 if (modelFallbackMessage) {
-  console.log("Note:", modelFallbackMessage);
+  console.log('Note:', modelFallbackMessage)
 }
 
 // Open specific file
 const { session: opened } = await createAgentSession({
-  sessionManager: SessionManager.open("/path/to/session.jsonl"),
-});
+  sessionManager: SessionManager.open('/path/to/session.jsonl')
+})
 
 // List sessions
-const currentProjectSessions = await SessionManager.list(process.cwd());
-const allSessions = await SessionManager.listAll(process.cwd());
+const currentProjectSessions = await SessionManager.list(process.cwd())
+const allSessions = await SessionManager.listAll(process.cwd())
 
 // Session replacement API for /new, /resume, /fork, /clone, and import flows.
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+  cwd,
+  sessionManager,
+  sessionStartEvent
+}) => {
+  const services = await createAgentSessionServices({ cwd })
   return {
     ...(await createAgentSessionFromServices({
       services,
       sessionManager,
-      sessionStartEvent,
+      sessionStartEvent
     })),
     services,
-    diagnostics: services.diagnostics,
-  };
-};
+    diagnostics: services.diagnostics
+  }
+}
 
 const runtime = await createAgentSessionRuntime(createRuntime, {
   cwd: process.cwd(),
   agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 
 // Replace the active session with a fresh one
-await runtime.newSession();
+await runtime.newSession()
 
 // Replace the active session with another saved session
-await runtime.switchSession("/path/to/session.jsonl");
+await runtime.switchSession('/path/to/session.jsonl')
 
 // Replace the active session with a fork from a specific user entry
-await runtime.fork("entry-id");
+await runtime.fork('entry-id')
 
 // Clone the active path through a specific entry
-await runtime.fork("entry-id", { position: "at" });
+await runtime.fork('entry-id', { position: 'at' })
 ```
 
 **SessionManager tree API:**
 
 ```typescript
-const sm = SessionManager.open("/path/to/session.jsonl");
+const sm = SessionManager.open('/path/to/session.jsonl')
 
 // Session listing
-const currentProjectSessions = await SessionManager.list(process.cwd());
-const allSessions = await SessionManager.listAll(process.cwd());
+const currentProjectSessions = await SessionManager.list(process.cwd())
+const allSessions = await SessionManager.listAll(process.cwd())
 
 // Tree traversal
-const entries = sm.getEntries();        // All entries (excludes header)
-const tree = sm.getTree();              // Full tree structure
-const path = sm.getPath();              // Path from root to current leaf
-const leaf = sm.getLeafEntry();         // Current leaf entry
-const entry = sm.getEntry(id);          // Get entry by ID
-const children = sm.getChildren(id);    // Direct children of entry
+const entries = sm.getEntries() // All entries (excludes header)
+const tree = sm.getTree() // Full tree structure
+const path = sm.getPath() // Path from root to current leaf
+const leaf = sm.getLeafEntry() // Current leaf entry
+const entry = sm.getEntry(id) // Get entry by ID
+const children = sm.getChildren(id) // Direct children of entry
 
 // Labels
-const label = sm.getLabel(id);          // Get label for entry
-sm.appendLabelChange(id, "checkpoint"); // Set label
+const label = sm.getLabel(id) // Get label for entry
+sm.appendLabelChange(id, 'checkpoint') // Set label
 
 // Branching
-sm.branch(entryId);                     // Move leaf to earlier entry
-sm.branchWithSummary(id, "Summary...");  // Branch with context summary
-sm.createBranchedSession(leafId);       // Extract path to new file
+sm.branch(entryId) // Move leaf to earlier entry
+sm.branchWithSummary(id, 'Summary...') // Branch with context summary
+sm.createBranchedSession(leafId) // Extract path to new file
 ```
 
 > See [examples/sdk/11-sessions.ts](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/11-sessions.ts) and [Session Format](https://pi.dev/docs/latest/session-format)
@@ -830,31 +851,35 @@ sm.createBranchedSession(leafId);       // Extract path to new file
 [Copied](https://pi.dev/docs/latest/sdk#settings-management)
 
 ```typescript
-import { createAgentSession, SettingsManager, SessionManager } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  SettingsManager,
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
 // Default: loads from files (global + project merged)
 const { session } = await createAgentSession({
-  settingsManager: SettingsManager.create(),
-});
+  settingsManager: SettingsManager.create()
+})
 
 // With overrides
-const settingsManager = SettingsManager.create();
+const settingsManager = SettingsManager.create()
 settingsManager.applyOverrides({
   compaction: { enabled: false },
-  retry: { enabled: true, maxRetries: 5 },
-});
-const { session } = await createAgentSession({ settingsManager });
+  retry: { enabled: true, maxRetries: 5 }
+})
+const { session } = await createAgentSession({ settingsManager })
 
 // In-memory (no file I/O, for testing)
 const { session } = await createAgentSession({
   settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
-  sessionManager: SessionManager.inMemory(),
-});
+  sessionManager: SessionManager.inMemory()
+})
 
 // Custom directories
 const { session } = await createAgentSession({
-  settingsManager: SettingsManager.create("/custom/cwd", "/custom/agent"),
-});
+  settingsManager: SettingsManager.create('/custom/cwd', '/custom/agent')
+})
 ```
 
 **Static factories:**
@@ -887,22 +912,19 @@ Project overrides global. Nested objects merge keys. Setters modify global setti
 Use `DefaultResourceLoader` to discover extensions, skills, prompts, themes, and context files.
 
 ```typescript
-import {
-  DefaultResourceLoader,
-  getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+import { DefaultResourceLoader, getAgentDir } from '@earendil-works/pi-coding-agent'
 
 const loader = new DefaultResourceLoader({
   cwd,
-  agentDir: getAgentDir(),
-});
-await loader.reload();
+  agentDir: getAgentDir()
+})
+await loader.reload()
 
-const extensions = loader.getExtensions();
-const skills = loader.getSkills();
-const prompts = loader.getPrompts();
-const themes = loader.getThemes();
-const contextFiles = loader.getAgentsFiles().agentsFiles;
+const extensions = loader.getExtensions()
+const skills = loader.getSkills()
+const prompts = loader.getPrompts()
+const themes = loader.getThemes()
+const contextFiles = loader.getAgentsFiles().agentsFiles
 ```
 
 ## Return Value
@@ -914,19 +936,19 @@ const contextFiles = loader.getAgentsFiles().agentsFiles;
 ```typescript
 interface CreateAgentSessionResult {
   // The session
-  session: AgentSession;
+  session: AgentSession
 
   // Extensions result (for runner setup)
-  extensionsResult: LoadExtensionsResult;
+  extensionsResult: LoadExtensionsResult
 
   // Warning if session model couldn't be restored
-  modelFallbackMessage?: string;
+  modelFallbackMessage?: string
 }
 
 interface LoadExtensionsResult {
-  extensions: Extension[];
-  errors: Array<{ path: string; error: string }>;
-  runtime: ExtensionRuntime;
+  extensions: Extension[]
+  errors: Array<{ path: string; error: string }>
+  runtime: ExtensionRuntime
 }
 ```
 
@@ -935,8 +957,8 @@ interface LoadExtensionsResult {
 [Copied](https://pi.dev/docs/latest/sdk#complete-example)
 
 ```typescript
-import { getModel } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { getModel } from '@earendil-works/pi-ai'
+import { Type } from 'typebox'
 import {
   AuthStorage,
   createAgentSession,
@@ -944,73 +966,73 @@ import {
   defineTool,
   ModelRegistry,
   SessionManager,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+  SettingsManager
+} from '@earendil-works/pi-coding-agent'
 
 // Set up auth storage (custom location)
-const authStorage = AuthStorage.create("/custom/agent/auth.json");
+const authStorage = AuthStorage.create('/custom/agent/auth.json')
 
 // Runtime API key override (not persisted)
 if (process.env.MY_KEY) {
-  authStorage.setRuntimeApiKey("anthropic", process.env.MY_KEY);
+  authStorage.setRuntimeApiKey('anthropic', process.env.MY_KEY)
 }
 
 // Model registry (no custom models.json)
-const modelRegistry = ModelRegistry.create(authStorage);
+const modelRegistry = ModelRegistry.create(authStorage)
 
 // Inline tool
 const statusTool = defineTool({
-  name: "status",
-  label: "Status",
-  description: "Get system status",
+  name: 'status',
+  label: 'Status',
+  description: 'Get system status',
   parameters: Type.Object({}),
   execute: async () => ({
-    content: [{ type: "text", text: `Uptime: ${process.uptime()}s` }],
-    details: {},
-  }),
-});
+    content: [{ type: 'text', text: `Uptime: ${process.uptime()}s` }],
+    details: {}
+  })
+})
 
-const model = getModel("anthropic", "claude-opus-4-5");
-if (!model) throw new Error("Model not found");
+const model = getModel('anthropic', 'claude-opus-4-5')
+if (!model) throw new Error('Model not found')
 
 // In-memory settings with overrides
 const settingsManager = SettingsManager.inMemory({
   compaction: { enabled: false },
-  retry: { enabled: true, maxRetries: 2 },
-});
+  retry: { enabled: true, maxRetries: 2 }
+})
 
 const loader = new DefaultResourceLoader({
   cwd: process.cwd(),
-  agentDir: "/custom/agent",
+  agentDir: '/custom/agent',
   settingsManager,
-  systemPromptOverride: () => "You are a minimal assistant. Be concise.",
-});
-await loader.reload();
+  systemPromptOverride: () => 'You are a minimal assistant. Be concise.'
+})
+await loader.reload()
 
 const { session } = await createAgentSession({
   cwd: process.cwd(),
-  agentDir: "/custom/agent",
+  agentDir: '/custom/agent',
 
   model,
-  thinkingLevel: "off",
+  thinkingLevel: 'off',
   authStorage,
   modelRegistry,
 
-  tools: ["read", "bash", "status"],
+  tools: ['read', 'bash', 'status'],
   customTools: [statusTool],
   resourceLoader: loader,
 
   sessionManager: SessionManager.inMemory(),
-  settingsManager,
-});
+  settingsManager
+})
 
 session.subscribe((event) => {
-  if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-    process.stdout.write(event.assistantMessageEvent.delta);
+  if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
+    process.stdout.write(event.assistantMessageEvent.delta)
   }
-});
+})
 
-await session.prompt("Get status and list files.");
+await session.prompt('Get status and list files.')
 ```
 
 ## Run Modes
@@ -1033,32 +1055,36 @@ import {
   createAgentSessionServices,
   getAgentDir,
   InteractiveMode,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+  cwd,
+  sessionManager,
+  sessionStartEvent
+}) => {
+  const services = await createAgentSessionServices({ cwd })
   return {
     ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
     services,
-    diagnostics: services.diagnostics,
-  };
-};
+    diagnostics: services.diagnostics
+  }
+}
 const runtime = await createAgentSessionRuntime(createRuntime, {
   cwd: process.cwd(),
   agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 
 const mode = new InteractiveMode(runtime, {
   migratedProviders: [],
   modelFallbackMessage: undefined,
-  initialMessage: "Hello",
+  initialMessage: 'Hello',
   initialImages: [],
-  initialMessages: [],
-});
+  initialMessages: []
+})
 
-await mode.run();
+await mode.run()
 ```
 
 ### runPrintMode
@@ -1075,29 +1101,33 @@ import {
   createAgentSessionServices,
   getAgentDir,
   runPrintMode,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+  cwd,
+  sessionManager,
+  sessionStartEvent
+}) => {
+  const services = await createAgentSessionServices({ cwd })
   return {
     ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
     services,
-    diagnostics: services.diagnostics,
-  };
-};
+    diagnostics: services.diagnostics
+  }
+}
 const runtime = await createAgentSessionRuntime(createRuntime, {
   cwd: process.cwd(),
   agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 
 await runPrintMode(runtime, {
-  mode: "text",
-  initialMessage: "Hello",
+  mode: 'text',
+  initialMessage: 'Hello',
   initialImages: [],
-  messages: ["Follow up"],
-});
+  messages: ['Follow up']
+})
 ```
 
 ### runRpcMode
@@ -1114,24 +1144,28 @@ import {
   createAgentSessionServices,
   getAgentDir,
   runRpcMode,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
+  SessionManager
+} from '@earendil-works/pi-coding-agent'
 
-const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-  const services = await createAgentSessionServices({ cwd });
+const createRuntime: CreateAgentSessionRuntimeFactory = async ({
+  cwd,
+  sessionManager,
+  sessionStartEvent
+}) => {
+  const services = await createAgentSessionServices({ cwd })
   return {
     ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
     services,
-    diagnostics: services.diagnostics,
-  };
-};
+    diagnostics: services.diagnostics
+  }
+}
 const runtime = await createAgentSessionRuntime(createRuntime, {
   cwd: process.cwd(),
   agentDir: getAgentDir(),
-  sessionManager: SessionManager.create(process.cwd()),
-});
+  sessionManager: SessionManager.create(process.cwd())
+})
 
-await runRpcMode(runtime);
+await runRpcMode(runtime)
 ```
 
 See [RPC documentation](https://pi.dev/docs/latest/rpc) for the JSON protocol.
