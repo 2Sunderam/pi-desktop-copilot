@@ -46,7 +46,7 @@ function initDatabase(): void {
   try {
     const dbPath = join(app.getPath('userData'), 'pi_copilot_chats.db')
     db = new DatabaseSync(dbPath)
-    
+
     // Create tables if they do not exist
     db.exec(`
       CREATE TABLE IF NOT EXISTS chats (
@@ -86,7 +86,9 @@ function startScheduler(): void {
   schedulerInterval = setInterval(async () => {
     if (!db) return
     try {
-      const activeTasks = db.prepare("SELECT * FROM scheduled_tasks WHERE status = 'active'").all() as any[]
+      const activeTasks = db
+        .prepare("SELECT * FROM scheduled_tasks WHERE status = 'active'")
+        .all() as any[]
       for (const task of activeTasks) {
         const now = Date.now()
         const lastRun = task.last_run || 0
@@ -136,54 +138,57 @@ async function executeScheduledTask(task: any): Promise<void> {
     )
 
     const userMsgId = 'user-' + Date.now()
-    db.prepare('INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)').run(
-      userMsgId,
-      chatId,
-      'user',
-      `[Scheduled Cron Task]\n${task.prompt}`,
-      Date.now()
-    )
+    db.prepare(
+      'INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)'
+    ).run(userMsgId, chatId, 'user', `[Scheduled Cron Task]\n${task.prompt}`, Date.now())
 
     const mainWindow = BrowserWindow.getAllWindows()[0]
     if (mainWindow) {
       mainWindow.webContents.send('scheduled-task-triggered', { chatId, workspace: task.workspace })
     }
 
-    currentSession.prompt(task.prompt).then(() => {
-      if (!currentSession || !db) return
+    currentSession
+      .prompt(task.prompt)
+      .then(() => {
+        if (!currentSession || !db) return
 
-      const sessionMessages = currentSession.messages
-      const lastMsg = sessionMessages[sessionMessages.length - 1]
-      if (lastMsg && lastMsg.role === 'assistant') {
-        const assistantMsgId = 'assistant-' + Date.now()
-        const text = getTextFromMessage(lastMsg)
-        db.prepare('INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)').run(
-          assistantMsgId,
+        const sessionMessages = currentSession.messages
+        const lastMsg = sessionMessages[sessionMessages.length - 1]
+        if (lastMsg && lastMsg.role === 'assistant') {
+          const assistantMsgId = 'assistant-' + Date.now()
+          const text = getTextFromMessage(lastMsg)
+          db.prepare(
+            'INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)'
+          ).run(assistantMsgId, chatId, 'assistant', text, Date.now())
+        }
+
+        if (mainWindow) {
+          mainWindow.webContents.send('scheduled-task-completed', {
+            chatId,
+            workspace: task.workspace
+          })
+        }
+      })
+      .catch((err) => {
+        console.error('Scheduler: Task execution prompt failed:', err)
+        if (!db) return
+        const errMsgId = 'error-' + Date.now()
+        db.prepare(
+          'INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)'
+        ).run(
+          errMsgId,
           chatId,
           'assistant',
-          text,
+          `⚠️ **Scheduled execution failed**: ${err.message}`,
           Date.now()
         )
-      }
-
-      if (mainWindow) {
-        mainWindow.webContents.send('scheduled-task-completed', { chatId, workspace: task.workspace })
-      }
-    }).catch((err) => {
-      console.error('Scheduler: Task execution prompt failed:', err)
-      if (!db) return
-      const errMsgId = 'error-' + Date.now()
-      db.prepare('INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)').run(
-        errMsgId,
-        chatId,
-        'assistant',
-        `⚠️ **Scheduled execution failed**: ${err.message}`,
-        Date.now()
-      )
-      if (mainWindow) {
-        mainWindow.webContents.send('scheduled-task-completed', { chatId, workspace: task.workspace })
-      }
-    })
+        if (mainWindow) {
+          mainWindow.webContents.send('scheduled-task-completed', {
+            chatId,
+            workspace: task.workspace
+          })
+        }
+      })
   } catch (err) {
     console.error('Scheduler: executeScheduledTask failed:', err)
   }
@@ -193,7 +198,8 @@ async function executeScheduledTask(task: any): Promise<void> {
 const webSearchTool = {
   name: 'web_search',
   label: 'Web Search',
-  description: 'Searches the web for the given query and returns top results with titles, snippets, and links. Useful to find recent info or answers to questions.',
+  description:
+    'Searches the web for the given query and returns top results with titles, snippets, and links. Useful to find recent info or answers to questions.',
   parameters: Type.Object({
     query: Type.String({ description: 'The search query to look up' })
   }),
@@ -203,7 +209,8 @@ const webSearchTool = {
       const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
         }
       })
       if (!response.ok) {
@@ -214,9 +221,11 @@ const webSearchTool = {
       const blocks = html.split('<div class="result results_links')
       for (let i = 1; i < blocks.length; i++) {
         const block = blocks[i]
-        const titleMatch = block.match(/<a\s+[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/)
+        const titleMatch = block.match(
+          /<a\s+[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/
+        )
         const snippetMatch = block.match(/<a\s+[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/)
-        
+
         if (titleMatch) {
           let rawUrl = titleMatch[1]
           let title = titleMatch[2].replace(/<[^>]*>/g, '').trim()
@@ -244,12 +253,17 @@ const webSearchTool = {
         }
       }
 
-      const formattedResults = results.slice(0, 8).map((res, idx) => {
-        return `[${idx + 1}] ${res.title}\nURL: ${res.url}\nSnippet: ${res.snippet}\n`
-      }).join('\n')
+      const formattedResults = results
+        .slice(0, 8)
+        .map((res, idx) => {
+          return `[${idx + 1}] ${res.title}\nURL: ${res.url}\nSnippet: ${res.snippet}\n`
+        })
+        .join('\n')
 
       return {
-        content: [{ type: 'text' as const, text: `Search results for "${query}":\n\n${formattedResults}` }],
+        content: [
+          { type: 'text' as const, text: `Search results for "${query}":\n\n${formattedResults}` }
+        ],
         details: { query, count: results.length, success: true }
       }
     } catch (err: any) {
@@ -262,7 +276,8 @@ const webSearchTool = {
 const installSkillTool = {
   name: 'install_skill',
   label: 'Install Skill',
-  description: 'Installs a new skill into the workspace from a Git repository URL (e.g. "https://github.com/username/skill-name").',
+  description:
+    'Installs a new skill into the workspace from a Git repository URL (e.g. "https://github.com/username/skill-name").',
   parameters: Type.Object({
     url: Type.String({ description: 'The Git repository URL of the skill to install' })
   }),
@@ -272,24 +287,24 @@ const installSkillTool = {
       if (!url) {
         throw new Error('URL is required')
       }
-      
+
       let skillName = 'downloaded-skill'
       const urlParts = url.replace(/\/$/, '').split('/')
       const lastPart = urlParts[urlParts.length - 1]
       if (lastPart) {
         skillName = lastPart.replace(/\.git$/, '')
       }
-      
+
       const targetDir = resolve(workspaceCwd, '.agents', 'skills', skillName)
       const skillsDir = resolve(workspaceCwd, '.agents', 'skills')
       if (!fs.existsSync(skillsDir)) {
         fs.mkdirSync(skillsDir, { recursive: true })
       }
-      
+
       if (fs.existsSync(targetDir)) {
         fs.rmSync(targetDir, { recursive: true, force: true })
       }
-      
+
       await new Promise<void>((resolveClone, rejectClone) => {
         exec(`git clone "${url}" "${targetDir}"`, (error, stdout, stderr) => {
           if (error) {
@@ -299,13 +314,18 @@ const installSkillTool = {
           }
         })
       })
-      
+
       if (currentLoader) {
         await currentLoader.reload()
       }
-      
+
       return {
-        content: [{ type: 'text' as const, text: `Successfully installed skill "${skillName}" into '.agents/skills/${skillName}'` }],
+        content: [
+          {
+            type: 'text' as const,
+            text: `Successfully installed skill "${skillName}" into '.agents/skills/${skillName}'`
+          }
+        ],
         details: { url, name: skillName, success: true }
       }
     } catch (err: any) {
@@ -420,7 +440,17 @@ app.whenReady().then(() => {
         authStorage,
         modelRegistry,
         customTools: [webSearchTool, installSkillTool],
-        tools: ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls', 'web_search', 'install_skill'],
+        tools: [
+          'read',
+          'bash',
+          'edit',
+          'write',
+          'grep',
+          'find',
+          'ls',
+          'web_search',
+          'install_skill'
+        ],
         sessionManager: SessionManager.inMemory(),
         settingsManager,
         resourceLoader: loader
@@ -472,17 +502,17 @@ app.whenReady().then(() => {
       if (lastPart) {
         skillName = lastPart.replace(/\.git$/, '')
       }
-      
+
       const targetDir = resolve(workspaceCwd, '.agents', 'skills', skillName)
       const skillsDir = resolve(workspaceCwd, '.agents', 'skills')
       if (!fs.existsSync(skillsDir)) {
         fs.mkdirSync(skillsDir, { recursive: true })
       }
-      
+
       if (fs.existsSync(targetDir)) {
         fs.rmSync(targetDir, { recursive: true, force: true })
       }
-      
+
       await new Promise<void>((resolveClone, rejectClone) => {
         exec(`git clone "${trimmedUrl}" "${targetDir}"`, (error, stdout, stderr) => {
           if (error) {
@@ -497,7 +527,7 @@ app.whenReady().then(() => {
       if (currentLoader) {
         await currentLoader.reload()
       }
-      
+
       return { success: true, name: skillName }
     } catch (err: any) {
       return { success: false, error: err.message }
@@ -515,7 +545,7 @@ app.whenReady().then(() => {
         return []
       }
       const files = fs.readdirSync(skillsDir)
-      const skills = files.filter(file => {
+      const skills = files.filter((file) => {
         const fullPath = join(skillsDir, file)
         return fs.statSync(fullPath).isDirectory()
       })
@@ -538,29 +568,39 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('create-chat', async (_event, chat: { id: string; title: string; workspace: string }) => {
-    if (!db) return { success: false, error: 'Database not initialized' }
-    try {
-      const stmt = db.prepare('INSERT OR REPLACE INTO chats (id, title, workspace, created_at) VALUES (?, ?, ?, ?)')
-      stmt.run(chat.id, chat.title, chat.workspace, Date.now())
-      return { success: true }
-    } catch (err: any) {
-      console.error('Failed to create chat:', err)
-      return { success: false, error: err.message }
+  ipcMain.handle(
+    'create-chat',
+    async (_event, chat: { id: string; title: string; workspace: string }) => {
+      if (!db) return { success: false, error: 'Database not initialized' }
+      try {
+        const stmt = db.prepare(
+          'INSERT OR REPLACE INTO chats (id, title, workspace, created_at) VALUES (?, ?, ?, ?)'
+        )
+        stmt.run(chat.id, chat.title, chat.workspace, Date.now())
+        return { success: true }
+      } catch (err: any) {
+        console.error('Failed to create chat:', err)
+        return { success: false, error: err.message }
+      }
     }
-  })
+  )
 
-  ipcMain.handle('add-message', async (_event, msg: { id: string; chatId: string; sender: string; text: string }) => {
-    if (!db) return { success: false, error: 'Database not initialized' }
-    try {
-      const stmt = db.prepare('INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)')
-      stmt.run(msg.id, msg.chatId, msg.sender, msg.text, Date.now())
-      return { success: true }
-    } catch (err: any) {
-      console.error('Failed to add message:', err)
-      return { success: false, error: err.message }
+  ipcMain.handle(
+    'add-message',
+    async (_event, msg: { id: string; chatId: string; sender: string; text: string }) => {
+      if (!db) return { success: false, error: 'Database not initialized' }
+      try {
+        const stmt = db.prepare(
+          'INSERT INTO messages (id, chat_id, sender, text, timestamp) VALUES (?, ?, ?, ?, ?)'
+        )
+        stmt.run(msg.id, msg.chatId, msg.sender, msg.text, Date.now())
+        return { success: true }
+      } catch (err: any) {
+        console.error('Failed to add message:', err)
+        return { success: false, error: err.message }
+      }
     }
-  })
+  )
 
   ipcMain.handle('load-messages', async (_event, chatId: string) => {
     if (!db) return []
@@ -599,29 +639,46 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('create-scheduled-task', async (_event, task: { id: string; workspace: string; prompt: string; cronExpression: string; status: string }) => {
-    if (!db) return { success: false, error: 'Database not initialized' }
-    try {
-      const stmt = db.prepare('INSERT INTO scheduled_tasks (id, workspace, prompt, cron_expression, last_run, status) VALUES (?, ?, ?, ?, 0, ?)')
-      stmt.run(task.id, task.workspace, task.prompt, task.cronExpression, task.status)
-      return { success: true }
-    } catch (err: any) {
-      console.error('Failed to create scheduled task:', err)
-      return { success: false, error: err.message }
+  ipcMain.handle(
+    'create-scheduled-task',
+    async (
+      _event,
+      task: {
+        id: string
+        workspace: string
+        prompt: string
+        cronExpression: string
+        status: string
+      }
+    ) => {
+      if (!db) return { success: false, error: 'Database not initialized' }
+      try {
+        const stmt = db.prepare(
+          'INSERT INTO scheduled_tasks (id, workspace, prompt, cron_expression, last_run, status) VALUES (?, ?, ?, ?, 0, ?)'
+        )
+        stmt.run(task.id, task.workspace, task.prompt, task.cronExpression, task.status)
+        return { success: true }
+      } catch (err: any) {
+        console.error('Failed to create scheduled task:', err)
+        return { success: false, error: err.message }
+      }
     }
-  })
+  )
 
-  ipcMain.handle('update-scheduled-task-status', async (_event, update: { id: string; status: string }) => {
-    if (!db) return { success: false, error: 'Database not initialized' }
-    try {
-      const stmt = db.prepare('UPDATE scheduled_tasks SET status = ? WHERE id = ?')
-      stmt.run(update.status, update.id)
-      return { success: true }
-    } catch (err: any) {
-      console.error('Failed to update scheduled task status:', err)
-      return { success: false, error: err.message }
+  ipcMain.handle(
+    'update-scheduled-task-status',
+    async (_event, update: { id: string; status: string }) => {
+      if (!db) return { success: false, error: 'Database not initialized' }
+      try {
+        const stmt = db.prepare('UPDATE scheduled_tasks SET status = ? WHERE id = ?')
+        stmt.run(update.status, update.id)
+        return { success: true }
+      } catch (err: any) {
+        console.error('Failed to update scheduled task status:', err)
+        return { success: false, error: err.message }
+      }
     }
-  })
+  )
 
   ipcMain.handle('delete-scheduled-task', async (_event, id: string) => {
     if (!db) return { success: false, error: 'Database not initialized' }

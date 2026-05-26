@@ -37,8 +37,6 @@ interface MessageLog {
   timestamp: Date
 }
 
-
-
 // Custom code component for ReactMarkdown with premium styling
 const renderers = {
   code({ node, inline, className, children, ...props }: any) {
@@ -59,7 +57,9 @@ const renderers = {
             <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
             <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
             <span className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
-            <span className="text-xs text-indigo-400 font-mono font-semibold tracking-wider ml-2">{match ? match[1].toUpperCase() : 'CODE'}</span>
+            <span className="text-xs text-indigo-400 font-mono font-semibold tracking-wider ml-2">
+              {match ? match[1].toUpperCase() : 'CODE'}
+            </span>
           </div>
           <button
             onClick={handleCopy}
@@ -83,7 +83,10 @@ const renderers = {
         </pre>
       </div>
     ) : (
-      <code className="px-1.5 py-0.5 rounded-md text-xs font-semibold bg-zinc-900 border border-zinc-800/50 text-indigo-400 font-mono" {...props}>
+      <code
+        className="px-1.5 py-0.5 rounded-md text-xs font-semibold bg-zinc-900 border border-zinc-800/50 text-indigo-400 font-mono"
+        {...props}
+      >
         {children}
       </code>
     )
@@ -110,13 +113,45 @@ export default function App(): React.JSX.Element {
   const [viewState, setViewState] = useState<'setup' | 'chat'>('chat')
   const [apiKey, setApiKey] = useState('')
   const [workspace, setWorkspace] = useState('')
+  const [modelId, setModelId] = useState('')
+  const [availableModels, setAvailableModels] = useState<
+    { provider: string; id: string; name: string }[]
+  >([])
+  const [mcpCommand, setMcpCommand] = useState('')
+  const [mcpArgs, setMcpArgs] = useState('')
   const [isInitializing, setIsInitializing] = useState(false)
   const [initError, setInitError] = useState<string | null>(null)
+
+  // Planning state
+  const [planningMode, setPlanningMode] = useState(false)
+  const [planningStep, setPlanningStep] = useState(0)
+  const [planningData, setPlanningData] = useState<{ framework: string; details: string }>({
+    framework: '',
+    details: ''
+  })
 
   // Chat conversation state
   const [messages, setMessages] = useState<MessageLog[]>([])
   const [streamingText, setStreamingText] = useState('')
   const [inputPrompt, setInputPrompt] = useState('')
+
+  // Slash commands state
+  const [slashCommands, setSlashCommands] = useState<{ name: string; description: string }[]>([])
+  const [showSlashCommands, setShowSlashCommands] = useState(false)
+  const [slashCommandFilter, setSlashCommandFilter] = useState('')
+  const [selectedSlashCommandIndex, setSelectedSlashCommandIndex] = useState(0)
+
+  // Load slash commands
+  useEffect(() => {
+    window.copilot
+      .getCommands()
+      .then((commands) => {
+        setSlashCommands(commands)
+      })
+      .catch((err) => {
+        console.error('Failed to load slash commands:', err)
+      })
+  }, [])
 
   // Agent activity states
   const [isAgentWorking, setIsAgentWorking] = useState(false)
@@ -155,9 +190,27 @@ export default function App(): React.JSX.Element {
     if (savedKey) {
       setApiKey(savedKey)
     }
+    const savedModelId = localStorage.getItem('selected_model_id') || ''
+    if (savedModelId) {
+      setModelId(savedModelId)
+    }
+    const savedMcpCommand = localStorage.getItem('mcp_command') || ''
+    if (savedMcpCommand) {
+      setMcpCommand(savedMcpCommand)
+    }
+    const savedMcpArgs = localStorage.getItem('mcp_args') || ''
+    if (savedMcpArgs) {
+      setMcpArgs(savedMcpArgs)
+    }
+
+    // Load available models
+    window.copilot.listModels().then((models) => {
+      setAvailableModels(models)
+    })
+
     const savedWorkspace = localStorage.getItem('workspace_path')
     if (savedWorkspace) {
-      handleLoadWorkspace(savedWorkspace, savedKey)
+      handleLoadWorkspace(savedWorkspace, savedKey, savedModelId, savedMcpCommand, savedMcpArgs)
     }
   }, [])
 
@@ -180,23 +233,38 @@ export default function App(): React.JSX.Element {
           break
 
         case 'message_start':
-          if (event.message?.role === 'user' || event.message?.role === 'system' || event.message?.role === 'tool') break
+          if (
+            event.message?.role === 'user' ||
+            event.message?.role === 'system' ||
+            event.message?.role === 'tool'
+          )
+            break
           setStreamingText('')
           break
 
         case 'message_update': {
-          if (event.message?.role === 'user' || event.message?.role === 'system' || event.message?.role === 'tool') break
+          if (
+            event.message?.role === 'user' ||
+            event.message?.role === 'system' ||
+            event.message?.role === 'tool'
+          )
+            break
           const text = getTextFromMessage(event.message)
           setStreamingText(text)
           break
         }
 
         case 'message_end': {
-          if (event.message?.role === 'user' || event.message?.role === 'system' || event.message?.role === 'tool') break
+          if (
+            event.message?.role === 'user' ||
+            event.message?.role === 'system' ||
+            event.message?.role === 'tool'
+          )
+            break
           const finalVal = getTextFromMessage(event.message)
           if (finalVal.trim()) {
             const assistantMsgId = 'assistant-' + Date.now()
-            
+
             // Save assistant message to SQLite
             if (activeChatIdRef.current) {
               window.copilot.addMessage({
@@ -229,7 +297,7 @@ export default function App(): React.JSX.Element {
         case 'tool_execution_end':
           setActiveTool(null)
           setActiveToolArgs(null)
-          
+
           // Auto refresh skills list if agent executed the install_skill tool successfully
           if (event.toolName === 'install_skill' && !event.isError) {
             refreshSkillsList()
@@ -287,7 +355,13 @@ export default function App(): React.JSX.Element {
   }
 
   // Handle Select Workspace and Initialize Agent
-  const handleLoadWorkspace = async (explicitFolder?: string, explicitApiKey?: string) => {
+  const handleLoadWorkspace = async (
+    explicitFolder?: string,
+    explicitApiKey?: string,
+    explicitModelId?: string,
+    explicitMcpCmd?: string,
+    explicitMcpArgs?: string
+  ) => {
     let folder = explicitFolder
     if (!folder) {
       try {
@@ -307,9 +381,18 @@ export default function App(): React.JSX.Element {
     setInitError(null)
 
     const keyToUse = explicitApiKey !== undefined ? explicitApiKey : apiKey
+    const modelToUse = explicitModelId !== undefined ? explicitModelId : modelId
+    const cmdToUse = explicitMcpCmd !== undefined ? explicitMcpCmd : mcpCommand
+    const argsToUse = explicitMcpArgs !== undefined ? explicitMcpArgs : mcpArgs
 
     try {
-      const res = await window.copilot.initAgent({ workspace: folder, apiKey: keyToUse })
+      const res = await window.copilot.initAgent({
+        workspace: folder,
+        apiKey: keyToUse,
+        modelId: modelToUse,
+        mcpCommand: cmdToUse,
+        mcpArgs: argsToUse
+      })
       if (res.success) {
         setWorkspace(folder)
         localStorage.setItem('workspace_path', folder)
@@ -325,8 +408,6 @@ export default function App(): React.JSX.Element {
       setIsInitializing(false)
     }
   }
-
-
 
   // Load Scheduled Tasks from DB
   const loadScheduledTasks = async (wsPath: string) => {
@@ -416,7 +497,7 @@ export default function App(): React.JSX.Element {
     try {
       const list = await window.copilot.getChats(wsPath)
       setChats(list)
-      
+
       if (list.length > 0) {
         handleSelectChat(list[0].id)
       } else {
@@ -441,6 +522,22 @@ export default function App(): React.JSX.Element {
     activeChatIdRef.current = null
     setMessages([])
     setStreamingText('')
+    setPlanningMode(false)
+    setPlanningStep(0)
+  }
+
+  const startPlanning = () => {
+    handleNewChat()
+    setPlanningMode(true)
+    setPlanningStep(1)
+    setMessages([
+      {
+        id: 'init-plan-' + Date.now(),
+        sender: 'assistant',
+        text: "Let's plan your project! First, what framework are you building with? (e.g. Next.js, React Native, Flutter, Python CLI, etc.)",
+        timestamp: new Date()
+      }
+    ])
   }
 
   const handleSelectChat = async (chatId: string) => {
@@ -449,12 +546,14 @@ export default function App(): React.JSX.Element {
     activeChatIdRef.current = chatId
     try {
       const dbMessages = await window.copilot.loadMessages(chatId)
-      setMessages(dbMessages.map((m: any) => ({
-        id: m.id,
-        sender: m.sender,
-        text: m.text,
-        timestamp: new Date(m.timestamp)
-      })))
+      setMessages(
+        dbMessages.map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          timestamp: new Date(m.timestamp)
+        }))
+      )
     } catch (err) {
       console.error('Failed to load chat messages:', err)
     }
@@ -483,6 +582,78 @@ export default function App(): React.JSX.Element {
     const promptText = inputPrompt
     setInputPrompt('')
 
+    if (planningMode) {
+      const userMsgId = 'user-' + Date.now()
+      setMessages((prev) => [
+        ...prev,
+        { id: userMsgId, sender: 'user', text: promptText, timestamp: new Date() }
+      ])
+
+      if (planningStep === 1) {
+        setPlanningData((prev) => ({ ...prev, framework: promptText }))
+        setPlanningStep(2)
+        const sysMsgId = 'assistant-' + Date.now()
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: sysMsgId,
+            sender: 'assistant',
+            text: 'Great. Now please provide the details and specifications for your project.',
+            timestamp: new Date()
+          }
+        ])
+      } else if (planningStep === 2) {
+        setPlanningData((prev) => ({ ...prev, details: promptText }))
+
+        // Generate plan
+        setPlanningMode(false)
+        setPlanningStep(0)
+
+        try {
+          setIsAgentWorking(true)
+          const res = await window.copilot.createProjectPlan({
+            workspace,
+            framework: planningData.framework || 'General',
+            details: promptText
+          })
+          if (res.success) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: 'sys-' + Date.now(),
+                sender: 'assistant',
+                text: 'Project Spec generated successfully in `AGENTS.md`. I am now ready to begin development based on this spec. What should we tackle first?',
+                timestamp: new Date()
+              }
+            ])
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: 'sys-' + Date.now(),
+                sender: 'assistant',
+                text: `Failed to generate AGENTS.md: ${res.error}`,
+                timestamp: new Date()
+              }
+            ])
+          }
+        } catch (err: any) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: 'sys-' + Date.now(),
+              sender: 'assistant',
+              text: `Failed to generate AGENTS.md: ${err.message}`,
+              timestamp: new Date()
+            }
+          ])
+        } finally {
+          setIsAgentWorking(false)
+        }
+      }
+      return
+    }
+
     let chatId = activeChatId
     const isNewChat = !chatId
 
@@ -490,11 +661,11 @@ export default function App(): React.JSX.Element {
       chatId = 'chat-' + Date.now()
       setActiveChatId(chatId)
       activeChatIdRef.current = chatId
-      
+
       // Save chat entry in SQLite using first query as title
       const title = promptText.slice(0, 30) + (promptText.length > 30 ? '...' : '')
       await window.copilot.createChat({ id: chatId, title, workspace })
-      
+
       // Refresh chats list
       const list = await window.copilot.getChats(workspace)
       setChats(list)
@@ -502,7 +673,12 @@ export default function App(): React.JSX.Element {
 
     const userMsgId = 'user-' + Date.now()
     // Save user message to SQLite
-    await window.copilot.addMessage({ id: userMsgId, chatId: chatId as string, sender: 'user', text: promptText })
+    await window.copilot.addMessage({
+      id: userMsgId,
+      chatId: chatId as string,
+      sender: 'user',
+      text: promptText
+    })
 
     // Append user message immediately
     setMessages((prev) => [
@@ -521,7 +697,12 @@ export default function App(): React.JSX.Element {
       await window.copilot.sendPrompt(promptText)
     } catch (err: any) {
       const errMsgId = 'error-' + Date.now()
-      await window.copilot.addMessage({ id: errMsgId, chatId: chatId as string, sender: 'assistant', text: `⚠️ **Error executing prompt**: ${err.message}` })
+      await window.copilot.addMessage({
+        id: errMsgId,
+        chatId: chatId as string,
+        sender: 'assistant',
+        text: `⚠️ **Error executing prompt**: ${err.message}`
+      })
       setMessages((prev) => [
         ...prev,
         {
@@ -544,8 +725,48 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  // Handle Ctrl+Enter to submit
+  // Handle text input changes (for slash commands)
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setInputPrompt(val)
+
+    if (val.startsWith('/')) {
+      setShowSlashCommands(true)
+      setSlashCommandFilter(val.substring(1).toLowerCase())
+      setSelectedSlashCommandIndex(0)
+    } else {
+      setShowSlashCommands(false)
+    }
+  }
+
+  // Handle keys
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showSlashCommands) {
+      const filteredCommands = slashCommands.filter((c) =>
+        c.name.toLowerCase().includes(slashCommandFilter)
+      )
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSlashCommandIndex((prev) => Math.min(prev + 1, filteredCommands.length - 1))
+        return
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSlashCommandIndex((prev) => Math.max(prev - 1, 0))
+        return
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        if (filteredCommands.length > 0) {
+          const selected = filteredCommands[selectedSlashCommandIndex]
+          setInputPrompt(`/${selected.name} `)
+          setShowSlashCommands(false)
+        }
+        return
+      } else if (e.key === 'Escape') {
+        setShowSlashCommands(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendPrompt(e)
@@ -569,10 +790,26 @@ export default function App(): React.JSX.Element {
 
   // Quick prompt templates
   const quickPrompts = [
-    { label: 'Search & Create Web App', text: 'Search the web for the latest responsive Tailwind portfolio designs. Then build a responsive premium single page react app based on that.' },
-    { label: 'Install Skill', text: 'Install the following git skill: https://github.com/mariozechner/build-artifacts.git' },
-    { label: 'Check File Syntax', text: 'Find all TypeScript files, identify any syntax bugs, and surgically edit files to resolve errors.' },
-    { label: 'Run Dependency Audit', text: 'Perform a dependency health audit on this project using npm audit tools.' }
+    {
+      label: 'Search & Create Web App',
+      text: 'Search the web for the latest responsive Tailwind portfolio designs. Then build a responsive premium single page react app based on that.'
+    },
+    {
+      label: 'Build React Native App',
+      text: 'Initialize a new Expo React Native project and build a complete app based on our AGENTS.md spec.'
+    },
+    {
+      label: 'Build Flutter App',
+      text: 'Initialize a new Flutter project and build a complete app based on our AGENTS.md spec.'
+    },
+    {
+      label: 'Build Next.js App',
+      text: 'Initialize a new Next.js project and build a complete web app based on our AGENTS.md spec.'
+    },
+    {
+      label: 'Check File Syntax',
+      text: 'Find all TypeScript files, identify any syntax bugs, and surgically edit files to resolve errors.'
+    }
   ]
 
   return (
@@ -589,8 +826,12 @@ export default function App(): React.JSX.Element {
               <div>
                 <h2 className="text-sm font-bold tracking-tight text-white">Pi Copilot</h2>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${workspace ? 'bg-green-500 animate-ping' : 'bg-amber-500 animate-pulse'}`} />
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${workspace ? 'text-green-400' : 'text-amber-400'}`}>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${workspace ? 'bg-green-500 animate-ping' : 'bg-amber-500 animate-pulse'}`}
+                  />
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-wider ${workspace ? 'text-green-400' : 'text-amber-400'}`}
+                  >
                     {workspace ? 'Workspace Loaded' : 'No Project Folder'}
                   </span>
                 </div>
@@ -604,8 +845,8 @@ export default function App(): React.JSX.Element {
                   <Cpu size={14} className="text-zinc-400 shrink-0" />
                   <span className="truncate">GPT-4o-Mini</span>
                 </div>
-                <button 
-                  onClick={() => setShowSettings(true)} 
+                <button
+                  onClick={() => setShowSettings(true)}
                   title="Configure Copilot Settings"
                   className="p-1 text-zinc-500 hover:text-white transition-colors"
                 >
@@ -652,14 +893,17 @@ export default function App(): React.JSX.Element {
                 <Code size={14} />
                 Installed Skills
               </h3>
-              
+
               {/* Scrollable list of folders inside .agents/skills */}
               <div className="max-h-24 overflow-y-auto mb-3 space-y-1.5 pr-1 custom-scroll">
                 {installedSkills.length === 0 ? (
                   <p className="text-[10px] text-zinc-650 italic">No custom skills loaded.</p>
                 ) : (
                   installedSkills.map((skill, idx) => (
-                    <div key={idx} className="flex items-center gap-2 px-2.5 py-1 bg-black rounded-lg border border-zinc-800/80 text-[10px] text-zinc-300 font-mono truncate">
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 px-2.5 py-1 bg-black rounded-lg border border-zinc-800/80 text-[10px] text-zinc-300 font-mono truncate"
+                    >
                       <BookOpen size={10} className="text-zinc-400 shrink-0" />
                       <span className="truncate">{skill}</span>
                     </div>
@@ -700,10 +944,14 @@ export default function App(): React.JSX.Element {
               </form>
 
               {skillInstallSuccess && (
-                <p className="mt-2 text-[9px] text-green-400 font-semibold font-mono text-center truncate">{skillInstallSuccess}</p>
+                <p className="mt-2 text-[9px] text-green-400 font-semibold font-mono text-center truncate">
+                  {skillInstallSuccess}
+                </p>
               )}
               {skillInstallError && (
-                <p className="mt-2 text-[9px] text-red-400 leading-normal font-mono break-all">{skillInstallError}</p>
+                <p className="mt-2 text-[9px] text-red-400 leading-normal font-mono break-all">
+                  {skillInstallError}
+                </p>
               )}
             </div>
           )}
@@ -730,12 +978,22 @@ export default function App(): React.JSX.Element {
             {!workspace ? (
               <div className="h-32 flex flex-col items-center justify-center text-center p-5 border border-dashed border-zinc-900 rounded-2xl bg-black">
                 <BookOpen size={20} className="text-zinc-800 mb-2" />
-                <p className="text-[10px] text-zinc-650 max-w-[150px] leading-relaxed">Connect a workspace to load conversation history.</p>
+                <p className="text-[10px] text-zinc-650 max-w-[150px] leading-relaxed">
+                  Connect a workspace to load conversation history.
+                </p>
               </div>
             ) : chats.length === 0 ? (
               <div className="h-32 flex flex-col items-center justify-center text-center p-5 border border-dashed border-zinc-900 rounded-2xl bg-black">
                 <BookOpen size={20} className="text-zinc-800 mb-2" />
-                <p className="text-[10px] text-zinc-650 max-w-[150px] leading-relaxed">No conversations saved yet. Send a prompt to save your first chat.</p>
+                <p className="text-[10px] text-zinc-650 max-w-[150px] leading-relaxed mb-3">
+                  No conversations saved yet. Send a prompt to save your first chat.
+                </p>
+                <button
+                  onClick={startPlanning}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg"
+                >
+                  Plan Project
+                </button>
               </div>
             ) : (
               <div className="space-y-1.5 flex-1 pr-1 custom-scroll max-h-[calc(100vh-340px)] overflow-y-auto">
@@ -750,8 +1008,12 @@ export default function App(): React.JSX.Element {
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate flex-1 pr-1">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeChatId === c.id ? 'bg-white' : 'bg-zinc-700'}`} />
-                      <span className="text-[11px] font-semibold truncate leading-none">{c.title}</span>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeChatId === c.id ? 'bg-white' : 'bg-zinc-700'}`}
+                      />
+                      <span className="text-[11px] font-semibold truncate leading-none">
+                        {c.title}
+                      </span>
                     </div>
                     <button
                       onClick={(e) => handleDeleteChat(e, c.id)}
@@ -803,7 +1065,9 @@ export default function App(): React.JSX.Element {
 
           <header className="h-16 border-b border-zinc-900 bg-black px-8 flex items-center justify-between z-10 relative">
             <div className="flex items-center gap-3">
-              <span className="text-xs text-zinc-400 font-bold tracking-widest uppercase font-mono">Status:</span>
+              <span className="text-xs text-zinc-400 font-bold tracking-widest uppercase font-mono">
+                Status:
+              </span>
               {!workspace ? (
                 <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black text-zinc-400 border border-zinc-800/80 text-xs font-semibold font-mono">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]" />
@@ -868,7 +1132,8 @@ export default function App(): React.JSX.Element {
                   Connect a Workspace
                 </h2>
                 <p className="mt-4 text-zinc-400 text-sm leading-relaxed max-w-sm">
-                  Select a project directory to grant the agent autonomous workspace access. It will read, write, edit, search, and run scripts in this folder natively.
+                  Select a project directory to grant the agent autonomous workspace access. It will
+                  read, write, edit, search, and run scripts in this folder natively.
                 </p>
 
                 <button
@@ -900,7 +1165,10 @@ export default function App(): React.JSX.Element {
           ) : (
             <div className="flex-1 overflow-y-auto p-8 space-y-6 z-10 relative">
               {messages.map((msg) => (
-                <div key={msg.id} className={`flex gap-4 max-w-4xl ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
+                <div
+                  key={msg.id}
+                  className={`flex gap-4 max-w-4xl ${msg.sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`}
+                >
                   {/* Sender Avatar */}
                   <div
                     className={`w-10 h-10 rounded-2xl shrink-0 flex items-center justify-center shadow-lg relative ${
@@ -920,14 +1188,19 @@ export default function App(): React.JSX.Element {
                         : 'bg-[#08080a] text-zinc-100 border-zinc-800/80 rounded-tl-none'
                     }`}
                   >
-                    <div className={`prose prose-invert max-w-none text-[14px] sm:text-[15px] space-y-2 ${msg.sender === 'user' ? 'text-zinc-100' : 'text-zinc-100'}`}>
+                    <div
+                      className={`prose prose-invert max-w-none text-[14px] sm:text-[15px] space-y-2 ${msg.sender === 'user' ? 'text-zinc-100' : 'text-zinc-100'}`}
+                    >
                       <ReactMarkdown remarkPlugins={[remarkGfm]} components={renderers}>
                         {msg.text}
                       </ReactMarkdown>
                     </div>
                     {msg.timestamp && (
                       <span className="text-[10px] text-zinc-500 mt-2 block self-end select-none font-mono">
-                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {msg.timestamp.toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
                       </span>
                     )}
                   </div>
@@ -1012,12 +1285,40 @@ export default function App(): React.JSX.Element {
               </div>
             )}
 
+            {/* Slash commands autocomplete popup */}
+            {showSlashCommands &&
+              slashCommands.filter((c) => c.name.toLowerCase().includes(slashCommandFilter))
+                .length > 0 && (
+                <div className="max-w-3xl mx-auto mb-2 bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+                  {slashCommands
+                    .filter((c) => c.name.toLowerCase().includes(slashCommandFilter))
+                    .map((cmd, idx) => (
+                      <div
+                        key={cmd.name}
+                        className={`px-4 py-2 flex flex-col cursor-pointer transition-colors ${idx === selectedSlashCommandIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}`}
+                        onClick={() => {
+                          setInputPrompt(`/${cmd.name} `)
+                          setShowSlashCommands(false)
+                        }}
+                      >
+                        <span className="text-zinc-200 text-sm font-bold font-mono">
+                          /{cmd.name}
+                        </span>
+                        <span className="text-zinc-500 text-xs">{cmd.description}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
             {/* Floating Prompt Input Capsule */}
             {workspace && (
-              <form onSubmit={handleSendPrompt} className="relative max-w-3xl mx-auto flex items-end gap-3 bg-[#08080a] border border-zinc-800 focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-zinc-800 rounded-2xl p-2.5 transition-all shadow-2xl backdrop-blur-md">
+              <form
+                onSubmit={handleSendPrompt}
+                className="relative max-w-3xl mx-auto flex items-end gap-3 bg-[#08080a] border border-zinc-800 focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-zinc-800 rounded-2xl p-2.5 transition-all shadow-2xl backdrop-blur-md"
+              >
                 <textarea
                   value={inputPrompt}
-                  onChange={(e) => setInputPrompt(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={handleKeyDown}
                   placeholder={
                     isAgentWorking
@@ -1064,7 +1365,7 @@ export default function App(): React.JSX.Element {
                 <Settings size={20} className="text-zinc-400 animate-spin-slow" />
                 Settings
               </h3>
-              <button 
+              <button
                 onClick={() => setShowSettings(false)}
                 className="p-1 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
               >
@@ -1076,20 +1377,58 @@ export default function App(): React.JSX.Element {
             <div className="space-y-5">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
-                  OpenAI API Key
+                  AI Model
                 </label>
-                <div className="relative flex items-center">
+                <div className="relative flex items-center mb-4">
+                  <select
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    className="w-full px-4 py-3 bg-black rounded-xl text-zinc-200 focus:outline-none border border-zinc-800 focus:border-zinc-500 font-mono text-sm shadow-inner cursor-pointer"
+                  >
+                    <option value="">Default (GPT-4o-mini)</option>
+                    {availableModels.map((m) => (
+                      <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                        {m.name} ({m.provider})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
+                  Provider API Key
+                </label>
+                <div className="relative flex items-center mb-4">
                   <Key size={16} className="absolute left-3.5 text-zinc-500" />
                   <input
                     type="password"
-                    placeholder={apiKey ? "••••••••••••••••" : "sk-proj-..."}
+                    placeholder={apiKey ? '••••••••••••••••' : 'sk-proj-...'}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="w-full pl-10 pr-4 py-3 bg-black rounded-xl text-zinc-200 placeholder-zinc-700 focus:outline-none border border-zinc-800 focus:border-zinc-500 font-mono text-sm shadow-inner"
                   />
                 </div>
-                <p className="mt-1 text-[10px] text-zinc-500 leading-normal">
-                  Configure your API key to override regional or default keys on-the-fly.
+
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
+                  MCP Server
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Command (e.g. npx)"
+                    value={mcpCommand}
+                    onChange={(e) => setMcpCommand(e.target.value)}
+                    className="w-1/3 px-4 py-3 bg-black rounded-xl text-zinc-200 placeholder-zinc-700 focus:outline-none border border-zinc-800 focus:border-zinc-500 font-mono text-sm shadow-inner"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Args (e.g. -y @modelcontextprotocol/server-sqlite)"
+                    value={mcpArgs}
+                    onChange={(e) => setMcpArgs(e.target.value)}
+                    className="w-2/3 px-4 py-3 bg-black rounded-xl text-zinc-200 placeholder-zinc-700 focus:outline-none border border-zinc-800 focus:border-zinc-500 font-mono text-sm shadow-inner"
+                  />
+                </div>
+                <p className="mt-2 text-[10px] text-zinc-500 leading-normal">
+                  Configure your Model, API key and optional MCP server.
                 </p>
               </div>
 
@@ -1116,14 +1455,23 @@ export default function App(): React.JSX.Element {
               <button
                 onClick={async () => {
                   localStorage.setItem('openai_api_key', apiKey.trim())
+                  localStorage.setItem('selected_model_id', modelId)
+                  localStorage.setItem('mcp_command', mcpCommand.trim())
+                  localStorage.setItem('mcp_args', mcpArgs.trim())
                   setShowSettings(false)
                   // Re-initialize agent with new key
                   if (workspace) {
                     setIsInitializing(true)
                     try {
-                      const res = await window.copilot.initAgent({ workspace, apiKey: apiKey.trim() })
+                      const res = await window.copilot.initAgent({
+                        workspace,
+                        apiKey: apiKey.trim(),
+                        modelId,
+                        mcpCommand: mcpCommand.trim(),
+                        mcpArgs: mcpArgs.trim()
+                      })
                       if (res.success) {
-                        console.log('Agent successfully re-initialized with new key!')
+                        console.log('Agent successfully re-initialized with new settings!')
                         // Refresh installed skills
                         refreshSkillsList(workspace)
                       }
@@ -1152,13 +1500,15 @@ export default function App(): React.JSX.Element {
               <div className="flex items-center gap-3">
                 <Clock size={20} className="text-zinc-400 animate-pulse" />
                 <div>
-                  <h3 className="text-lg font-bold text-white leading-none">Scheduled Tasks (Crons)</h3>
+                  <h3 className="text-lg font-bold text-white leading-none">
+                    Scheduled Tasks (Crons)
+                  </h3>
                   <p className="text-[11px] text-zinc-500 mt-1.5 font-sans">
                     Automate background agent executions on recurring schedules.
                   </p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setShowScheduler(false)}
                 className="p-1 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-900 transition-all cursor-pointer"
               >
@@ -1168,7 +1518,10 @@ export default function App(): React.JSX.Element {
 
             <div className="flex-1 overflow-y-auto space-y-6 pr-1 custom-scroll">
               {/* Create Task Form */}
-              <form onSubmit={handleCreateScheduledTask} className="p-5 bg-black rounded-2xl border border-zinc-900 space-y-4">
+              <form
+                onSubmit={handleCreateScheduledTask}
+                className="p-5 bg-black rounded-2xl border border-zinc-900 space-y-4"
+              >
                 <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 font-mono flex items-center gap-2">
                   <Plus size={12} />
                   Schedule New Prompt
@@ -1231,14 +1584,22 @@ export default function App(): React.JSX.Element {
                 {scheduledTasks.length === 0 ? (
                   <div className="p-8 text-center border border-dashed border-zinc-900 rounded-2xl bg-black">
                     <Clock size={24} className="text-zinc-850 mx-auto mb-2" />
-                    <p className="text-xs text-zinc-650 font-sans">No recurring crons scheduled for this workspace.</p>
+                    <p className="text-xs text-zinc-650 font-sans">
+                      No recurring crons scheduled for this workspace.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">
                     {scheduledTasks.map((task) => (
-                      <div key={task.id} className="p-4 bg-black rounded-2xl border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div
+                        key={task.id}
+                        className="p-4 bg-black rounded-2xl border border-zinc-900 hover:border-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-zinc-100 font-sans line-clamp-2" title={task.prompt}>
+                          <p
+                            className="text-sm font-semibold text-zinc-100 font-sans line-clamp-2"
+                            title={task.prompt}
+                          >
                             {task.prompt}
                           </p>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[10px] font-mono text-zinc-500">
@@ -1247,7 +1608,8 @@ export default function App(): React.JSX.Element {
                               {task.cron_expression}
                             </span>
                             <span>
-                              Last run: {task.last_run ? new Date(task.last_run).toLocaleString() : 'Never'}
+                              Last run:{' '}
+                              {task.last_run ? new Date(task.last_run).toLocaleString() : 'Never'}
                             </span>
                           </div>
                         </div>
@@ -1260,7 +1622,9 @@ export default function App(): React.JSX.Element {
                                 ? 'bg-zinc-900 text-white border-zinc-700 hover:bg-zinc-800'
                                 : 'bg-black text-zinc-500 border-zinc-900 hover:border-zinc-800'
                             }`}
-                            title={task.status === 'active' ? 'Pause Cron Task' : 'Activate Cron Task'}
+                            title={
+                              task.status === 'active' ? 'Pause Cron Task' : 'Activate Cron Task'
+                            }
                           >
                             {task.status === 'active' ? (
                               <>

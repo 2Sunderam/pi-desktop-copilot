@@ -29,8 +29,10 @@
     "@electron-toolkit/utils": "^4.0.0",
     "@mariozechner/pi-agent-core": "^0.73.1",
     "@mariozechner/pi-ai": "^0.73.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/vite": "^4.3.0",
     "lucide-react": "^1.16.0",
+    "node-fetch": "^3.3.2",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
